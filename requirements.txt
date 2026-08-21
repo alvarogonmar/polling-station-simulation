@@ -1,0 +1,6 @@
+mesa
+flask
+flasgger
+numpy
+pandas
+matplotlib

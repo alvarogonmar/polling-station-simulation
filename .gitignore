@@ -1,0 +1,50 @@
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Flask local files
+.flaskenv
+instance/
+
+# Project generated outputs
+outputs/*.csv
+outputs/*.json
+outputs/*.png
+outputs/*.pdf
+outputs/*.xlsx
+!outputs/.gitkeep
+
+# Unity / C# build artifacts if copied here
+bin/
+obj/
+Library/
+Temp/
+Logs/
+UserSettings/
+.vs/
+.vscode/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Secrets / local environment
+.env
+.env.*
+!.env.example
