@@ -1,0 +1,34 @@
+"""Configuration values for the polling station simulation."""
+
+SEED = 42
+
+N_VOTERS = 500
+PARTIES = ["P1", "P2", "P3", "P4", "P5"]
+
+P_TURNOUT = 0.65
+P_NULL_VOTE = 0.03
+P_ID_INVALID = 0.01
+
+SIMULATION_STEPS = 360
+QUEUE_THRESHOLD = 20
+POWER_FAILURE_STEP = 120
+POWER_FAILURE_DURATION = 15
+
+ARRIVAL_START_STEP = 1
+ARRIVAL_END_STEP = 300
+MEAN_INTERARRIVAL_TIME = 0.9
+MEAN_SERVICE_TIME = 3
+MIN_VOTING_TIME = 2
+MAX_VOTING_TIME = 6
+MIN_PATIENCE = 15
+MAX_PATIENCE = 45
+
+AGE_GROUP_PROBABILITIES = {
+    "18-29": [0.35, 0.25, 0.20, 0.10, 0.10],
+    "30-44": [0.25, 0.30, 0.20, 0.15, 0.10],
+    "45-59": [0.20, 0.25, 0.30, 0.15, 0.10],
+    "60+": [0.15, 0.20, 0.35, 0.20, 0.10],
+}
+
+EDUCATION_LEVELS = ["low", "medium", "high"]
+INCOME_LEVELS = ["low", "medium", "high"]
