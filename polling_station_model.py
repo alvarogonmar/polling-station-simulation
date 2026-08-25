@@ -23,6 +23,7 @@ class PollingStationModel(Model):
         self.current_event = None
         self.event_queue = []
         self.event_log = []
+        self.communication_log = []
 
         self.n_voters = config.N_VOTERS
         self.parties = config.PARTIES
@@ -122,11 +123,21 @@ class PollingStationModel(Model):
         if event_type == "POWER_OUTAGE":
             self.power_status = "outage"
             self.poll_worker.state = "paused"
+            self.communication_log.append(
+                "SupervisorAgent -> PollWorkerAgent: pause service because of POWER_OUTAGE"
+            )
             return
 
         if event_type == "POWER_RESTORED":
             self.power_status = "normal"
-            self.poll_worker.state = "available"
+            if self.poll_worker.current_voter is None:
+                self.poll_worker.state = "available"
+            else:
+                self.poll_worker.state = "busy"
+            self.communication_log.append(
+                "SupervisorAgent -> PollWorkerAgent: resume service after POWER_RESTORED"
+            )
+            self.try_start_next_validation()
             return
 
         voter = self.get_voter_by_id(voter_id)
@@ -150,43 +161,50 @@ class PollingStationModel(Model):
         voter.x = 2.0
         voter.y = float(len(self.queue))
         self.queue.append(voter)
-
-        service_delay = self.rng.exponential(self.mean_service_time)
-        validation_time = self.simulation_clock + max(1.0, service_delay)
-        self.schedule_event(validation_time, "VALIDATION", voter.unique_id)
+        self.communication_log.append(
+            f"VoterAgent {voter.unique_id} -> PollWorkerAgent: joins line and waits for validation"
+        )
+        self.try_start_next_validation()
 
     def process_validation(self, voter):
-        if voter not in self.queue:
+        if self.poll_worker.current_voter != voter:
             return
 
         voter.waiting_time = int(round(self.simulation_clock - voter.arrival_time))
         if voter.should_abandon():
-            self.queue.remove(voter)
+            self.poll_worker.release_voter()
             voter.state = "abandoned"
             voter.x = -2.0
             voter.y = 0.0
             self.abandonment_count += 1
+            self.try_start_next_validation()
             return
 
-        self.queue.remove(voter)
         voter.state = "validating"
         voter.x = self.poll_worker.x - 1.0
         voter.y = self.poll_worker.y
-        self.poll_worker.state = "busy"
-        self.poll_worker.current_voter = voter
 
         id_valid = self.rng.random() >= self.p_id_invalid
+        voter.receive_validation_result(id_valid)
+        self.communication_log.append(
+            f"PollWorkerAgent -> VoterAgent {voter.unique_id}: validation result = {id_valid}"
+        )
         if not id_valid:
             voter.state = "rejected"
             self.poll_worker.rejected_voters += 1
             self.poll_worker.processed_voters += 1
-            self.poll_worker.current_voter = None
-            self.poll_worker.state = "available"
+            self.poll_worker.release_voter()
+            self.try_start_next_validation()
             return
 
+        voter.state = "ready_to_vote"
+        voter.x = 7.0
+        voter.y = 0.0
         voting_duration = self.rng.uniform(config.MIN_VOTING_TIME, config.MAX_VOTING_TIME)
         voting_time = self.simulation_clock + voting_duration
         self.schedule_event(voting_time, "VOTING", voter.unique_id)
+        self.poll_worker.release_voter()
+        self.try_start_next_validation()
 
     def process_voting(self, voter):
         voter.state = "voting"
@@ -195,8 +213,6 @@ class PollingStationModel(Model):
         voter.cast_vote()
         self.register_vote(voter)
         self.poll_worker.processed_voters += 1
-        self.poll_worker.current_voter = None
-        self.poll_worker.state = "available"
         self.schedule_event(self.simulation_clock + 1.0, "EXIT", voter.unique_id)
 
     def process_exit(self, voter):
@@ -237,6 +253,29 @@ class PollingStationModel(Model):
             voter.x = 2.0
             voter.y = float(index)
 
+    def try_start_next_validation(self):
+        if self.power_status == "outage":
+            self.poll_worker.state = "paused"
+            return
+        if self.poll_worker.current_voter is not None:
+            return
+        if not self.queue:
+            self.poll_worker.state = "available"
+            return
+
+        voter = self.queue.pop(0)
+        voter.state = "validating"
+        voter.x = self.poll_worker.x - 1.0
+        voter.y = self.poll_worker.y
+        voter.request_validation(self.poll_worker)
+
+        service_delay = self.rng.exponential(self.mean_service_time)
+        validation_time = self.simulation_clock + max(1.0, service_delay)
+        self.schedule_event(validation_time, "VALIDATION", voter.unique_id)
+        self.communication_log.append(
+            f"PollWorkerAgent -> VoterAgent {voter.unique_id}: validation scheduled"
+        )
+
     def get_voter_by_id(self, voter_id):
         if voter_id is None:
             return None
@@ -261,6 +300,8 @@ class PollingStationModel(Model):
             "abandonment_count": int(self.abandonment_count),
             "power_status": self.power_status,
             "event_queue_size": len(self.event_queue),
+            "main_events": ["ARRIVAL", "VALIDATION", "VOTING", "EXIT"],
+            "external_event": "POWER_OUTAGE",
             "votes_by_party": dict(self.votes_by_party),
         }
 
@@ -282,6 +323,9 @@ class PollingStationModel(Model):
             "simulation_clock": round(float(self.simulation_clock), 2),
             "current_event": self.current_event,
             "current_event_queue_size": len(self.event_queue),
+            "main_events": ["ARRIVAL", "VALIDATION", "VOTING", "EXIT"],
+            "external_event": "POWER_OUTAGE",
+            "communication_log": self.communication_log[-8:],
             "agents": self.get_agent_payload(),
             "stats": self.get_stats(),
         }

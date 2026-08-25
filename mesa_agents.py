@@ -25,6 +25,7 @@ class VoterAgent(Agent):
         self.chosen_party = None
         self.vote_valid = None
         self.validation_started_at = None
+        self.last_message = None
 
     def _get_age_group(self, age):
         if age <= 29:
@@ -53,6 +54,16 @@ class VoterAgent(Agent):
     def should_abandon(self):
         return self.waiting_time > self.patience
 
+    def request_validation(self, poll_worker):
+        self.last_message = f"Voter {self.unique_id} requests validation"
+        poll_worker.receive_voter(self)
+
+    def receive_validation_result(self, is_valid):
+        if is_valid:
+            self.last_message = "Poll worker approved voter ID"
+        else:
+            self.last_message = "Poll worker rejected voter ID"
+
     def to_dict(self):
         return {
             "id": self.unique_id,
@@ -65,6 +76,7 @@ class VoterAgent(Agent):
             "waiting_time": int(self.waiting_time),
             "chosen_party": self.chosen_party,
             "vote_valid": self.vote_valid,
+            "last_message": self.last_message,
         }
 
 
@@ -81,6 +93,16 @@ class PollWorkerAgent(Agent):
         self.remaining_service_time = 0
         self.processed_voters = 0
         self.rejected_voters = 0
+        self.last_message = None
+
+    def receive_voter(self, voter):
+        self.current_voter = voter
+        self.state = "busy"
+        self.last_message = f"Received validation request from voter {voter.unique_id}"
+
+    def release_voter(self):
+        self.current_voter = None
+        self.state = "available"
 
     def process(self):
         if self.model.power_status == "outage":
@@ -133,6 +155,7 @@ class PollWorkerAgent(Agent):
             "state": self.state,
             "processed_voters": int(self.processed_voters),
             "rejected_voters": int(self.rejected_voters),
+            "last_message": self.last_message,
         }
 
 
@@ -146,17 +169,21 @@ class SupervisorAgent(Agent):
         self.x = 10.0
         self.y = 0.0
         self.interventions = 0
+        self.last_message = None
 
     def observe(self):
         if self.model.power_status == "outage":
             self.state = "intervening"
+            self.last_message = "External event detected: power outage"
             return
 
         if len(self.model.queue) > self.model.queue_threshold:
             self.state = "intervening"
             self.interventions += 1
+            self.last_message = "Queue is too long; poll worker should prioritize service"
         else:
             self.state = "observing"
+            self.last_message = "Polling station operating normally"
 
     def to_dict(self):
         return {
@@ -166,4 +193,5 @@ class SupervisorAgent(Agent):
             "y": float(self.y),
             "state": self.state,
             "interventions": int(self.interventions),
+            "last_message": self.last_message,
         }
