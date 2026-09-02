@@ -8,7 +8,7 @@ from mesa import Model
 from mesa.time import RandomActivation
 
 import config
-from mesa_agents import PollWorkerAgent, SupervisorAgent, VoterAgent
+from mesa_agents import BallotBoxAgent, PollWorkerAgent, SupervisorAgent, VoterAgent
 
 
 class PollingStationModel(Model):
@@ -30,6 +30,8 @@ class PollingStationModel(Model):
         self.p_turnout = config.P_TURNOUT
         self.p_null_vote = config.P_NULL_VOTE
         self.p_id_invalid = config.P_ID_INVALID
+        self.n_poll_workers = config.N_POLL_WORKERS
+        self.n_ballot_boxes = config.N_BALLOT_BOXES
         self.queue_threshold = config.QUEUE_THRESHOLD
         self.mean_service_time = config.MEAN_SERVICE_TIME
         self.min_patience = config.MIN_PATIENCE
@@ -38,10 +40,23 @@ class PollingStationModel(Model):
 
         self.voter_line = []
         self.queue = self.voter_line
+        self.ballot_box_queues = [[] for _ in range(self.n_ballot_boxes)]
         self.voters = self.create_voters()
-        self.poll_worker = PollWorkerAgent(501, self)
-        self.supervisor = SupervisorAgent(502, self)
-        self.schedule.add(self.poll_worker)
+        self.poll_workers = [
+            PollWorkerAgent(501 + index, self)
+            for index in range(self.n_poll_workers)
+        ]
+        for index, poll_worker in enumerate(self.poll_workers):
+            poll_worker.x = 6.0
+            poll_worker.y = float(index * 2)
+            self.schedule.add(poll_worker)
+        self.ballot_boxes = [
+            BallotBoxAgent(601 + index, self, index)
+            for index in range(self.n_ballot_boxes)
+        ]
+        for ballot_box in self.ballot_boxes:
+            self.schedule.add(ballot_box)
+        self.supervisor = SupervisorAgent(701, self)
         self.schedule.add(self.supervisor)
 
         self.votes_by_party = Counter({party: 0 for party in self.parties})
@@ -122,22 +137,25 @@ class PollingStationModel(Model):
     def process_event(self, event_type, voter_id):
         if event_type == "POWER_OUTAGE":
             self.power_status = "outage"
-            self.poll_worker.state = "paused"
+            for poll_worker in self.poll_workers:
+                poll_worker.state = "paused"
             self.communication_log.append(
-                "SupervisorAgent -> PollWorkerAgent: pause service because of POWER_OUTAGE"
+                "SupervisorAgent -> PollWorkerAgents: pause service because of POWER_OUTAGE"
             )
             return
 
         if event_type == "POWER_RESTORED":
             self.power_status = "normal"
-            if self.poll_worker.current_voter is None:
-                self.poll_worker.state = "available"
-            else:
-                self.poll_worker.state = "busy"
+            for poll_worker in self.poll_workers:
+                if poll_worker.current_voter is None:
+                    poll_worker.state = "available"
+                else:
+                    poll_worker.state = "busy"
             self.communication_log.append(
-                "SupervisorAgent -> PollWorkerAgent: resume service after POWER_RESTORED"
+                "SupervisorAgent -> PollWorkerAgents: resume service after POWER_RESTORED"
             )
             self.try_start_next_validation()
+            self.try_start_next_voting()
             return
 
         voter = self.get_voter_by_id(voter_id)
@@ -162,17 +180,19 @@ class PollingStationModel(Model):
         voter.y = float(len(self.queue))
         self.queue.append(voter)
         self.communication_log.append(
-            f"VoterAgent {voter.unique_id} -> PollWorkerAgent: joins line and waits for validation"
+            f"VoterAgent {voter.unique_id} -> PollWorkerAgents: joins line and waits for validation"
         )
         self.try_start_next_validation()
 
     def process_validation(self, voter):
-        if self.poll_worker.current_voter != voter:
+        poll_worker = self.get_poll_worker_for_voter(voter)
+        if poll_worker is None or poll_worker.current_voter != voter:
             return
 
         voter.waiting_time = int(round(self.simulation_clock - voter.arrival_time))
         if voter.should_abandon():
-            self.poll_worker.release_voter()
+            poll_worker.release_voter()
+            voter.assigned_poll_worker = None
             voter.state = "abandoned"
             voter.x = -2.0
             voter.y = 0.0
@@ -181,44 +201,54 @@ class PollingStationModel(Model):
             return
 
         voter.state = "validating"
-        voter.x = self.poll_worker.x - 1.0
-        voter.y = self.poll_worker.y
+        voter.x = poll_worker.x - 1.0
+        voter.y = poll_worker.y
 
         id_valid = self.rng.random() >= self.p_id_invalid
         voter.receive_validation_result(id_valid)
         self.communication_log.append(
-            f"PollWorkerAgent -> VoterAgent {voter.unique_id}: validation result = {id_valid}"
+            f"PollWorkerAgent {poll_worker.unique_id} -> VoterAgent {voter.unique_id}: validation result = {id_valid}"
         )
         if not id_valid:
             voter.state = "rejected"
-            self.poll_worker.rejected_voters += 1
-            self.poll_worker.processed_voters += 1
-            self.poll_worker.release_voter()
+            poll_worker.rejected_voters += 1
+            poll_worker.processed_voters += 1
+            poll_worker.release_voter()
+            voter.assigned_poll_worker = None
             self.try_start_next_validation()
             return
 
         voter.state = "ready_to_vote"
-        voter.x = 7.0
-        voter.y = 0.0
-        voting_duration = self.rng.uniform(config.MIN_VOTING_TIME, config.MAX_VOTING_TIME)
-        voting_time = self.simulation_clock + voting_duration
-        self.schedule_event(voting_time, "VOTING", voter.unique_id)
-        self.poll_worker.release_voter()
+        ballot_box = self.get_ballot_box_with_shortest_line()
+        voter.assigned_ballot_box = ballot_box.unique_id
+        self.ballot_box_queues[self.get_ballot_box_index(ballot_box)].append(voter)
+        self.update_ballot_box_queue_positions()
+        poll_worker.processed_voters += 1
+        poll_worker.release_voter()
+        voter.assigned_poll_worker = None
         self.try_start_next_validation()
+        self.try_start_next_voting()
 
     def process_voting(self, voter):
+        ballot_box = self.get_ballot_box_for_voter(voter)
+        if ballot_box is None or ballot_box.current_voter != voter:
+            return
+
         voter.state = "voting"
-        voter.x = 8.0
-        voter.y = 0.0
+        voter.x = ballot_box.x
+        voter.y = ballot_box.y
         voter.cast_vote()
         self.register_vote(voter)
-        self.poll_worker.processed_voters += 1
+        ballot_box.processed_voters += 1
+        ballot_box.release_voter()
+        voter.assigned_ballot_box = None
         self.schedule_event(self.simulation_clock + 1.0, "EXIT", voter.unique_id)
+        self.try_start_next_voting()
 
     def process_exit(self, voter):
         voter.state = "finished"
         voter.x = 11.0
-        voter.y = 0.0
+        voter.y = float((voter.unique_id % self.n_ballot_boxes) * 2)
 
     def update_power_status(self):
         outage_start = config.POWER_FAILURE_STEP
@@ -252,29 +282,90 @@ class PollingStationModel(Model):
         for index, voter in enumerate(self.queue):
             voter.x = 2.0
             voter.y = float(index)
+        self.update_ballot_box_queue_positions()
+
+    def update_ballot_box_queue_positions(self):
+        for ballot_box_index, ballot_box_queue in enumerate(self.ballot_box_queues):
+            ballot_box = self.ballot_boxes[ballot_box_index]
+            for queue_index, voter in enumerate(ballot_box_queue):
+                voter.x = ballot_box.x - 1.2 - float(queue_index * 0.8)
+                voter.y = ballot_box.y
 
     def try_start_next_validation(self):
         if self.power_status == "outage":
-            self.poll_worker.state = "paused"
-            return
-        if self.poll_worker.current_voter is not None:
-            return
-        if not self.queue:
-            self.poll_worker.state = "available"
+            for poll_worker in self.poll_workers:
+                poll_worker.state = "paused"
             return
 
-        voter = self.queue.pop(0)
-        voter.state = "validating"
-        voter.x = self.poll_worker.x - 1.0
-        voter.y = self.poll_worker.y
-        voter.request_validation(self.poll_worker)
+        for poll_worker in self.poll_workers:
+            if poll_worker.current_voter is not None:
+                continue
+            if not self.queue:
+                poll_worker.state = "available"
+                continue
 
-        service_delay = self.rng.exponential(self.mean_service_time)
-        validation_time = self.simulation_clock + max(1.0, service_delay)
-        self.schedule_event(validation_time, "VALIDATION", voter.unique_id)
-        self.communication_log.append(
-            f"PollWorkerAgent -> VoterAgent {voter.unique_id}: validation scheduled"
+            voter = self.queue.pop(0)
+            voter.state = "validating"
+            voter.x = poll_worker.x - 1.0
+            voter.y = poll_worker.y
+            voter.assigned_poll_worker = poll_worker.unique_id
+            voter.request_validation(poll_worker)
+
+            service_delay = self.rng.exponential(self.mean_service_time)
+            validation_time = self.simulation_clock + max(1.0, service_delay)
+            self.schedule_event(validation_time, "VALIDATION", voter.unique_id)
+            self.communication_log.append(
+                f"PollWorkerAgent {poll_worker.unique_id} -> VoterAgent {voter.unique_id}: validation scheduled"
+            )
+
+    def try_start_next_voting(self):
+        if self.power_status == "outage":
+            return
+
+        for ballot_box in self.ballot_boxes:
+            if ballot_box.current_voter is not None:
+                continue
+            ballot_box_queue = self.ballot_box_queues[self.get_ballot_box_index(ballot_box)]
+            if not ballot_box_queue:
+                ballot_box.state = "available"
+                continue
+
+            voter = ballot_box_queue.pop(0)
+            voter.state = "ready_to_vote"
+            voter.x = ballot_box.x - 1.0
+            voter.y = ballot_box.y
+            ballot_box.receive_voter(voter)
+
+            voting_duration = self.rng.uniform(config.MIN_VOTING_TIME, config.MAX_VOTING_TIME)
+            voting_time = self.simulation_clock + voting_duration
+            self.schedule_event(voting_time, "VOTING", voter.unique_id)
+            self.communication_log.append(
+                f"BallotBoxAgent {ballot_box.unique_id} -> VoterAgent {voter.unique_id}: voting scheduled"
+            )
+
+        self.update_ballot_box_queue_positions()
+
+    def get_ballot_box_with_shortest_line(self):
+        return min(
+            self.ballot_boxes,
+            key=lambda ballot_box: len(self.ballot_box_queues[self.get_ballot_box_index(ballot_box)])
+            + (1 if ballot_box.current_voter is not None else 0),
         )
+
+    def get_ballot_box_index(self, ballot_box):
+        return int(ballot_box.unique_id - 601)
+
+    def get_poll_worker_for_voter(self, voter):
+        for poll_worker in self.poll_workers:
+            if poll_worker.unique_id == voter.assigned_poll_worker:
+                return poll_worker
+        return None
+
+    def get_ballot_box_for_voter(self, voter):
+        for ballot_box in self.ballot_boxes:
+            if ballot_box.unique_id == voter.assigned_ballot_box:
+                return ballot_box
+        return None
 
     def get_voter_by_id(self, voter_id):
         if voter_id is None:
@@ -296,8 +387,14 @@ class PollingStationModel(Model):
             "valid_votes": int(self.total_valid_votes),
             "null_votes": int(self.total_null_votes),
             "queue_length": len(self.queue),
+            "ready_to_vote_queue_length": sum(len(queue) for queue in self.ballot_box_queues),
+            "ballot_box_queue_lengths": [
+                len(queue) for queue in self.ballot_box_queues
+            ],
             "max_queue_length": int(self.max_queue_length),
             "abandonment_count": int(self.abandonment_count),
+            "poll_workers": self.n_poll_workers,
+            "ballot_boxes": self.n_ballot_boxes,
             "power_status": self.power_status,
             "event_queue_size": len(self.event_queue),
             "main_events": ["ARRIVAL", "VALIDATION", "VOTING", "EXIT"],
@@ -314,7 +411,9 @@ class PollingStationModel(Model):
         visible_voters = active_voters[:80]
         return (
             [voter.to_dict() for voter in visible_voters]
-            + [self.poll_worker.to_dict(), self.supervisor.to_dict()]
+            + [poll_worker.to_dict() for poll_worker in self.poll_workers]
+            + [ballot_box.to_dict() for ballot_box in self.ballot_boxes]
+            + [self.supervisor.to_dict()]
         )
 
     def to_json(self):

@@ -25,6 +25,8 @@ class VoterAgent(Agent):
         self.chosen_party = None
         self.vote_valid = None
         self.validation_started_at = None
+        self.assigned_poll_worker = None
+        self.assigned_ballot_box = None
         self.last_message = None
 
     def _get_age_group(self, age):
@@ -49,7 +51,6 @@ class VoterAgent(Agent):
         self.vote_valid = self.model.rng.random() >= self.model.p_null_vote
         if self.vote_valid:
             self.choose_party()
-        self.state = "finished"
 
     def should_abandon(self):
         return self.waiting_time > self.patience
@@ -76,6 +77,8 @@ class VoterAgent(Agent):
             "waiting_time": int(self.waiting_time),
             "chosen_party": self.chosen_party,
             "vote_valid": self.vote_valid,
+            "assigned_poll_worker": self.assigned_poll_worker,
+            "assigned_ballot_box": self.assigned_ballot_box,
             "last_message": self.last_message,
         }
 
@@ -193,5 +196,39 @@ class SupervisorAgent(Agent):
             "y": float(self.y),
             "state": self.state,
             "interventions": int(self.interventions),
+            "last_message": self.last_message,
+        }
+
+
+class BallotBoxAgent(Agent):
+    """Voting booth or ballot box that can be used by one voter at a time."""
+
+    def __init__(self, unique_id, model, lane_index):
+        super().__init__(unique_id, model)
+        self.type = "ballot_box"
+        self.state = "available"
+        self.x = 8.0
+        self.y = float(lane_index * 2)
+        self.current_voter = None
+        self.processed_voters = 0
+        self.last_message = None
+
+    def receive_voter(self, voter):
+        self.current_voter = voter
+        self.state = "busy"
+        self.last_message = f"Voter {voter.unique_id} is voting here"
+
+    def release_voter(self):
+        self.current_voter = None
+        self.state = "available"
+
+    def to_dict(self):
+        return {
+            "id": self.unique_id,
+            "type": self.type,
+            "x": float(self.x),
+            "y": float(self.y),
+            "state": self.state,
+            "processed_voters": int(self.processed_voters),
             "last_message": self.last_message,
         }
