@@ -22,6 +22,7 @@ class VoterAgent(Agent):
         self.waiting_time = 0
         self.patience = model.rng.integers(model.min_patience, model.max_patience + 1)
         self.participates = False
+        self.party_probabilities = None
         self.chosen_party = None
         self.vote_valid = None
         self.validation_started_at = None
@@ -45,6 +46,7 @@ class VoterAgent(Agent):
 
     def choose_party(self):
         probabilities = self.model.get_party_probabilities(self)
+        self.party_probabilities = [round(float(probability), 4) for probability in probabilities]
         self.chosen_party = str(self.model.rng.choice(self.model.parties, p=probabilities))
 
     def cast_vote(self):
@@ -74,6 +76,10 @@ class VoterAgent(Agent):
             "state": self.state,
             "age": int(self.age),
             "age_group": self.age_group,
+            "education": self.education,
+            "income": self.income,
+            "ideology": round(float(self.ideology), 4),
+            "party_probabilities": self.party_probabilities,
             "waiting_time": int(self.waiting_time),
             "chosen_party": self.chosen_party,
             "vote_valid": self.vote_valid,

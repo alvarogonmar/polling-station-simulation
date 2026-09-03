@@ -83,7 +83,15 @@ class PollingStationModel(Model):
         return voters
 
     def get_party_probabilities(self, voter):
-        return config.AGE_GROUP_PROBABILITIES[voter.age_group]
+        age_base = np.array(config.AGE_GROUP_PROBABILITIES[voter.age_group], dtype=float)
+        education_effect = np.array(config.EDUCATION_EFFECTS[voter.education], dtype=float)
+        income_effect = np.array(config.INCOME_EFFECTS[voter.income], dtype=float)
+        ideology_effect = np.array(config.IDEOLOGY_EFFECTS, dtype=float) * voter.ideology
+
+        utility_scores = age_base + education_effect + income_effect + ideology_effect
+        exp_scores = np.exp(utility_scores - np.max(utility_scores))
+        probabilities = exp_scores / exp_scores.sum()
+        return probabilities
 
     def schedule_initial_events(self):
         """Create initial ARRIVAL events before the simulation starts."""

@@ -34,3 +34,17 @@ AGE_GROUP_PROBABILITIES = {
 
 EDUCATION_LEVELS = ["low", "medium", "high"]
 INCOME_LEVELS = ["low", "medium", "high"]
+
+EDUCATION_EFFECTS = {
+    "low": [0.05, 0.00, 0.05, -0.05, -0.05],
+    "medium": [0.00, 0.05, 0.00, 0.05, -0.05],
+    "high": [-0.05, 0.05, -0.05, 0.10, 0.05],
+}
+
+INCOME_EFFECTS = {
+    "low": [0.10, 0.05, 0.00, -0.05, -0.10],
+    "medium": [0.00, 0.05, 0.05, 0.00, -0.05],
+    "high": [-0.10, -0.05, 0.05, 0.10, 0.10],
+}
+
+IDEOLOGY_EFFECTS = [-0.20, -0.10, 0.00, 0.10, 0.20]
