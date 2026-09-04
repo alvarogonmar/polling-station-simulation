@@ -388,12 +388,29 @@ class PollingStationModel(Model):
             self.total_null_votes += 1
 
     def get_stats(self):
+        finished_voters = sum(1 for voter in self.voters if voter.state == "finished")
+        rejected_voters = sum(1 for voter in self.voters if voter.state == "rejected")
+        active_voters = sum(
+            1
+            for voter in self.voters
+            if voter.state in {"waiting", "validating", "ready_to_vote", "voting"}
+        )
+        pending_arrivals = sum(
+            1
+            for voter in self.voters
+            if voter.participates and voter.state == "outside"
+        )
+
         return {
             "total_registered": self.n_voters,
             "total_turnout": int(self.total_turnout),
             "total_abstention": int(self.total_abstention),
             "valid_votes": int(self.total_valid_votes),
             "null_votes": int(self.total_null_votes),
+            "finished_voters": int(finished_voters),
+            "rejected_voters": int(rejected_voters),
+            "active_voters": int(active_voters),
+            "pending_arrivals": int(pending_arrivals),
             "queue_length": len(self.queue),
             "ready_to_vote_queue_length": sum(len(queue) for queue in self.ballot_box_queues),
             "ballot_box_queue_lengths": [
@@ -414,7 +431,8 @@ class PollingStationModel(Model):
         active_voters = [
             voter
             for voter in self.voters
-            if voter.participates and voter.state != "outside"
+            if voter.participates
+            and voter.state in {"waiting", "validating", "ready_to_vote", "voting"}
         ]
         visible_voters = active_voters[:80]
         return (
