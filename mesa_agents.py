@@ -96,8 +96,8 @@ class PollWorkerAgent(Agent):
         super().__init__(unique_id, model)
         self.type = "poll_worker"
         self.state = "available"
-        self.x = 6.0
-        self.y = 0.0
+        self.x = 19.0
+        self.y = 27.0
         self.current_voter = None
         self.remaining_service_time = 0
         self.processed_voters = 0
@@ -175,8 +175,8 @@ class SupervisorAgent(Agent):
         super().__init__(unique_id, model)
         self.type = "supervisor"
         self.state = "observing"
-        self.x = 10.0
-        self.y = 0.0
+        self.x = 8.5
+        self.y = 7.0
         self.interventions = 0
         self.last_message = None
 
@@ -213,8 +213,8 @@ class BallotBoxAgent(Agent):
         super().__init__(unique_id, model)
         self.type = "ballot_box"
         self.state = "available"
-        self.x = 8.0
-        self.y = float(lane_index * 2)
+        self.x = 46.0
+        self.y = 26.0
         self.current_voter = None
         self.processed_voters = 0
         self.last_message = None

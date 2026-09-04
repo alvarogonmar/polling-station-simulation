@@ -11,6 +11,56 @@ import config
 from mesa_agents import BallotBoxAgent, PollWorkerAgent, SupervisorAgent, VoterAgent
 
 
+ENTRANCE_POSITION = (2.0, 27.5)
+EXIT_POSITION = (49.0, 25.0)
+SUPERVISOR_POSITION = (8.5, 7.0)
+
+GENERAL_QUEUE_POSITIONS = [
+    (5.5, 35.0),
+    (8.0, 35.0),
+    (10.5, 35.0),
+    (13.0, 35.0),
+    (13.0, 31.5),
+    (10.5, 31.5),
+    (8.0, 31.5),
+    (5.5, 31.5),
+    (5.5, 28.0),
+    (8.0, 28.0),
+    (10.5, 28.0),
+    (13.0, 28.0),
+    (13.0, 24.5),
+    (10.5, 24.5),
+    (8.0, 24.5),
+    (5.5, 24.5),
+    (5.5, 21.0),
+    (8.0, 21.0),
+    (10.5, 21.0),
+    (13.0, 21.0),
+]
+
+POLL_WORKER_POSITIONS = [
+    (19.0, 34.0),
+    (19.0, 27.0),
+    (19.0, 20.0),
+]
+
+BALLOT_BOX_POSITIONS = [
+    (46.0, 42.0),
+    (46.0, 34.0),
+    (46.0, 26.0),
+    (46.0, 18.0),
+    (46.0, 10.0),
+]
+
+VOTING_BOOTH_POSITIONS = [
+    (42.0, 42.0),
+    (42.0, 34.0),
+    (42.0, 26.0),
+    (42.0, 18.0),
+    (42.0, 10.0),
+]
+
+
 class PollingStationModel(Model):
     """Central Mesa model that controls the polling station event queue."""
 
@@ -47,16 +97,18 @@ class PollingStationModel(Model):
             for index in range(self.n_poll_workers)
         ]
         for index, poll_worker in enumerate(self.poll_workers):
-            poll_worker.x = 6.0
-            poll_worker.y = float(index * 2)
+            poll_worker.x, poll_worker.y = POLL_WORKER_POSITIONS[index]
             self.schedule.add(poll_worker)
         self.ballot_boxes = [
             BallotBoxAgent(601 + index, self, index)
             for index in range(self.n_ballot_boxes)
         ]
+        for index, ballot_box in enumerate(self.ballot_boxes):
+            ballot_box.x, ballot_box.y = BALLOT_BOX_POSITIONS[index]
         for ballot_box in self.ballot_boxes:
             self.schedule.add(ballot_box)
         self.supervisor = SupervisorAgent(701, self)
+        self.supervisor.x, self.supervisor.y = SUPERVISOR_POSITION
         self.schedule.add(self.supervisor)
 
         self.votes_by_party = Counter({party: 0 for party in self.parties})
@@ -184,8 +236,7 @@ class PollingStationModel(Model):
 
     def process_arrival(self, voter):
         voter.state = "waiting"
-        voter.x = 2.0
-        voter.y = float(len(self.queue))
+        voter.x, voter.y = ENTRANCE_POSITION
         self.queue.append(voter)
         self.communication_log.append(
             f"VoterAgent {voter.unique_id} -> PollWorkerAgents: joins line and waits for validation"
@@ -202,14 +253,13 @@ class PollingStationModel(Model):
             poll_worker.release_voter()
             voter.assigned_poll_worker = None
             voter.state = "abandoned"
-            voter.x = -2.0
-            voter.y = 0.0
+            voter.x, voter.y = EXIT_POSITION
             self.abandonment_count += 1
             self.try_start_next_validation()
             return
 
         voter.state = "validating"
-        voter.x = poll_worker.x - 1.0
+        voter.x = poll_worker.x - 2.4
         voter.y = poll_worker.y
 
         id_valid = self.rng.random() >= self.p_id_invalid
@@ -243,8 +293,8 @@ class PollingStationModel(Model):
             return
 
         voter.state = "voting"
-        voter.x = ballot_box.x
-        voter.y = ballot_box.y
+        ballot_box_index = self.get_ballot_box_index(ballot_box)
+        voter.x, voter.y = VOTING_BOOTH_POSITIONS[ballot_box_index]
         voter.cast_vote()
         self.register_vote(voter)
         ballot_box.processed_voters += 1
@@ -255,8 +305,7 @@ class PollingStationModel(Model):
 
     def process_exit(self, voter):
         voter.state = "finished"
-        voter.x = 11.0
-        voter.y = float((voter.unique_id % self.n_ballot_boxes) * 2)
+        voter.x, voter.y = EXIT_POSITION
 
     def update_power_status(self):
         outage_start = config.POWER_FAILURE_STEP
@@ -279,8 +328,7 @@ class PollingStationModel(Model):
             voter.waiting_time += 1
             if voter.should_abandon():
                 voter.state = "abandoned"
-                voter.x = -2.0
-                voter.y = 0.0
+                voter.x, voter.y = EXIT_POSITION
                 self.abandonment_count += 1
             else:
                 remaining_queue.append(voter)
@@ -288,16 +336,25 @@ class PollingStationModel(Model):
 
     def update_queue_positions(self):
         for index, voter in enumerate(self.queue):
-            voter.x = 2.0
-            voter.y = float(index)
+            voter.x, voter.y = self.get_general_queue_position(index)
         self.update_ballot_box_queue_positions()
 
     def update_ballot_box_queue_positions(self):
         for ballot_box_index, ballot_box_queue in enumerate(self.ballot_box_queues):
             ballot_box = self.ballot_boxes[ballot_box_index]
             for queue_index, voter in enumerate(ballot_box_queue):
-                voter.x = ballot_box.x - 1.2 - float(queue_index * 0.8)
+                voter.x = ballot_box.x - 7.5 - float(queue_index * 1.6)
                 voter.y = ballot_box.y
+
+    def get_general_queue_position(self, index):
+        if index < len(GENERAL_QUEUE_POSITIONS):
+            return GENERAL_QUEUE_POSITIONS[index]
+
+        overflow_index = index - len(GENERAL_QUEUE_POSITIONS)
+        return (
+            ENTRANCE_POSITION[0],
+            max(2.0, ENTRANCE_POSITION[1] - float(overflow_index * 1.3)),
+        )
 
     def try_start_next_validation(self):
         if self.power_status == "outage":
@@ -314,7 +371,7 @@ class PollingStationModel(Model):
 
             voter = self.queue.pop(0)
             voter.state = "validating"
-            voter.x = poll_worker.x - 1.0
+            voter.x = poll_worker.x - 2.4
             voter.y = poll_worker.y
             voter.assigned_poll_worker = poll_worker.unique_id
             voter.request_validation(poll_worker)
@@ -340,8 +397,8 @@ class PollingStationModel(Model):
 
             voter = ballot_box_queue.pop(0)
             voter.state = "ready_to_vote"
-            voter.x = ballot_box.x - 1.0
-            voter.y = ballot_box.y
+            ballot_box_index = self.get_ballot_box_index(ballot_box)
+            voter.x, voter.y = VOTING_BOOTH_POSITIONS[ballot_box_index]
             ballot_box.receive_voter(voter)
 
             voting_duration = self.rng.uniform(config.MIN_VOTING_TIME, config.MAX_VOTING_TIME)
