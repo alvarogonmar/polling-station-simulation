@@ -3,6 +3,8 @@
 import numpy as np
 from mesa import Agent
 
+import config
+
 
 class VoterAgent(Agent):
     """Voter with demographic attributes and voting decisions."""
@@ -15,6 +17,12 @@ class VoterAgent(Agent):
         self.education = education
         self.income = income
         self.ideology = ideology
+
+        # --- issue-based affinity system (bloque activable/desactivable) ---
+        self.has_children = self._decide_has_children()
+        self.issue_weights = self._compute_issue_weights()
+        # --------------------------------------------------------------------
+
         self.state = "outside"
         self.x = 0.0
         self.y = 0.0
@@ -39,6 +47,34 @@ class VoterAgent(Agent):
         if age <= 59:
             return "45-59"
         return "60+"
+
+    # --- issue-based affinity system (bloque activable/desactivable) ---
+    def _decide_has_children(self):
+        if not config.ENABLE_ISSUE_AFFINITY:
+            return False  # no consume rng: el resto de la simulación no se ve afectado
+
+        probability = config.HAS_CHILDREN_PROBABILITY_BY_AGE_GROUP[self.age_group]
+        return bool(self.model.rng.random() < probability)
+
+    def _compute_issue_weights(self):
+        if not config.ENABLE_ISSUE_AFFINITY:
+            return None
+
+        weights = np.array(config.BASE_ISSUE_WEIGHTS, dtype=float)
+        weights += np.array(config.ISSUE_INCOME_EFFECTS[self.income], dtype=float)
+        weights += np.array(config.ISSUE_EDUCATION_EFFECTS[self.education], dtype=float)
+        weights += np.array(config.ISSUE_AGE_GROUP_EFFECTS[self.age_group], dtype=float)
+        weights += np.array(config.ISSUE_IDEOLOGY_EFFECTS, dtype=float) * self.ideology
+        if self.has_children:
+            weights += np.array(config.ISSUE_HAS_CHILDREN_BONUS, dtype=float)
+
+        weights = np.clip(weights, 0.05, None)
+        weights = weights / weights.sum() * 100.0
+
+        rounded = [round(float(w), 2) for w in weights]
+        rounded[-1] = round(rounded[-1] + round(100.0 - sum(rounded), 2), 2)
+        return rounded
+    # --------------------------------------------------------------------
 
     def decide_turnout(self):
         self.participates = self.model.rng.random() < self.model.p_turnout
@@ -80,6 +116,8 @@ class VoterAgent(Agent):
             "education": self.education,
             "income": self.income,
             "ideology": round(float(self.ideology), 4),
+            "has_children": bool(self.has_children),
+            "issue_weights": self.issue_weights,
             "party_probabilities": self.party_probabilities,
             "waiting_time": int(self.waiting_time),
             "chosen_party": self.chosen_party,

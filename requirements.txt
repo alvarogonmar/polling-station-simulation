@@ -1,4 +1,4 @@
-mesa
+mesa<3
 flask
 flasgger
 numpy
