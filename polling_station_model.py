@@ -14,29 +14,15 @@ from mesa_agents import BallotBoxAgent, PollWorkerAgent, SupervisorAgent, VoterA
 ENTRANCE_POSITION = (2.0, 27.5)
 EXIT_POSITION = (49.0, 25.0)
 SUPERVISOR_POSITION = (8.5, 7.0)
+VOTING_QUEUE_DELAY = 4.0
+MAX_BALLOT_LANE_QUEUE_LENGTH = 8
 
-GENERAL_QUEUE_POSITIONS = [
-    (5.5, 35.0),
-    (8.0, 35.0),
-    (10.5, 35.0),
-    (13.0, 35.0),
-    (13.0, 31.5),
-    (10.5, 31.5),
-    (8.0, 31.5),
-    (5.5, 31.5),
-    (5.5, 28.0),
-    (8.0, 28.0),
-    (10.5, 28.0),
-    (13.0, 28.0),
-    (13.0, 24.5),
-    (10.5, 24.5),
-    (8.0, 24.5),
-    (5.5, 24.5),
-    (5.5, 21.0),
-    (8.0, 21.0),
-    (10.5, 21.0),
-    (13.0, 21.0),
-]
+GENERAL_QUEUE_POSITIONS = []
+for row_index, y in enumerate([36.0, 33.5, 31.0, 28.5, 26.0, 23.5, 21.0, 18.5]):
+    row_positions = [(5.5, y), (8.0, y), (10.5, y), (13.0, y)]
+    if row_index % 2 == 1:
+        row_positions.reverse()
+    GENERAL_QUEUE_POSITIONS.extend(row_positions)
 
 POLL_WORKER_POSITIONS = [
     (19.0, 34.0),
@@ -53,11 +39,11 @@ BALLOT_BOX_POSITIONS = [
 ]
 
 VOTING_BOOTH_POSITIONS = [
-    (42.0, 42.0),
-    (42.0, 34.0),
-    (42.0, 26.0),
-    (42.0, 18.0),
-    (42.0, 10.0),
+    (39.8, 42.0),
+    (39.8, 34.0),
+    (39.8, 26.0),
+    (39.8, 18.0),
+    (39.8, 10.0),
 ]
 
 
@@ -231,6 +217,8 @@ class PollingStationModel(Model):
             self.process_validation(voter)
         elif event_type == "VOTING":
             self.process_voting(voter)
+        elif event_type == "START_VOTING":
+            self.process_start_voting()
         elif event_type == "EXIT":
             self.process_exit(voter)
 
@@ -278,13 +266,31 @@ class PollingStationModel(Model):
 
         voter.state = "ready_to_vote"
         ballot_box = self.get_ballot_box_with_shortest_line()
+        if ballot_box is None:
+            voter.state = "validating"
+            self.schedule_event(
+                self.simulation_clock + 1.0,
+                "VALIDATION",
+                voter.unique_id,
+            )
+            return
+
         voter.assigned_ballot_box = ballot_box.unique_id
+        voter.ready_to_vote_at = self.simulation_clock
         self.ballot_box_queues[self.get_ballot_box_index(ballot_box)].append(voter)
         self.update_ballot_box_queue_positions()
         poll_worker.processed_voters += 1
         poll_worker.release_voter()
         voter.assigned_poll_worker = None
         self.try_start_next_validation()
+        self.schedule_event(
+            self.simulation_clock + VOTING_QUEUE_DELAY,
+            "START_VOTING",
+            voter.unique_id,
+        )
+        self.try_start_next_voting()
+
+    def process_start_voting(self):
         self.try_start_next_voting()
 
     def process_voting(self, voter):
@@ -343,7 +349,7 @@ class PollingStationModel(Model):
         for ballot_box_index, ballot_box_queue in enumerate(self.ballot_box_queues):
             ballot_box = self.ballot_boxes[ballot_box_index]
             for queue_index, voter in enumerate(ballot_box_queue):
-                voter.x = ballot_box.x - 7.5 - float(queue_index * 1.6)
+                voter.x = ballot_box.x - 7.5 - float(queue_index * 2.0)
                 voter.y = ballot_box.y
 
     def get_general_queue_position(self, index):
@@ -364,6 +370,9 @@ class PollingStationModel(Model):
 
         for poll_worker in self.poll_workers:
             if poll_worker.current_voter is not None:
+                continue
+            if not self.has_ballot_lane_capacity():
+                poll_worker.state = "available"
                 continue
             if not self.queue:
                 poll_worker.state = "available"
@@ -395,8 +404,15 @@ class PollingStationModel(Model):
                 ballot_box.state = "available"
                 continue
 
+            first_voter = ballot_box_queue[0]
+            if first_voter.ready_to_vote_at is not None:
+                wait_time = self.simulation_clock - first_voter.ready_to_vote_at
+                if wait_time < VOTING_QUEUE_DELAY:
+                    ballot_box.state = "available"
+                    continue
+
             voter = ballot_box_queue.pop(0)
-            voter.state = "ready_to_vote"
+            voter.state = "voting"
             ballot_box_index = self.get_ballot_box_index(ballot_box)
             voter.x, voter.y = VOTING_BOOTH_POSITIONS[ballot_box_index]
             ballot_box.receive_voter(voter)
@@ -409,12 +425,29 @@ class PollingStationModel(Model):
             )
 
         self.update_ballot_box_queue_positions()
+        self.try_start_next_validation()
 
     def get_ballot_box_with_shortest_line(self):
+        ballot_boxes_with_capacity = [
+            ballot_box
+            for ballot_box in self.ballot_boxes
+            if len(self.ballot_box_queues[self.get_ballot_box_index(ballot_box)])
+            < MAX_BALLOT_LANE_QUEUE_LENGTH
+        ]
+
+        if not ballot_boxes_with_capacity:
+            return None
+
         return min(
-            self.ballot_boxes,
+            ballot_boxes_with_capacity,
             key=lambda ballot_box: len(self.ballot_box_queues[self.get_ballot_box_index(ballot_box)])
             + (1 if ballot_box.current_voter is not None else 0),
+        )
+
+    def has_ballot_lane_capacity(self):
+        return any(
+            len(ballot_box_queue) < MAX_BALLOT_LANE_QUEUE_LENGTH
+            for ballot_box_queue in self.ballot_box_queues
         )
 
     def get_ballot_box_index(self, ballot_box):

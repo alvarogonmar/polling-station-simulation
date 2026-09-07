@@ -26,6 +26,7 @@ class VoterAgent(Agent):
         self.chosen_party = None
         self.vote_valid = None
         self.validation_started_at = None
+        self.ready_to_vote_at = None
         self.assigned_poll_worker = None
         self.assigned_ballot_box = None
         self.last_message = None
