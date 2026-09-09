@@ -48,3 +48,5 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+CONTEXTO_COMPLETO_PROYECTO.md
