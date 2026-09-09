@@ -104,7 +104,9 @@ class PollingStationModel(Model):
         self.total_null_votes = 0
         self.abandonment_count = 0
         self.max_queue_length = 0
+        self.history = []
         self.schedule_initial_events()
+        self.record_history_snapshot()
 
     def create_voters(self):
         voters = []
@@ -161,6 +163,8 @@ class PollingStationModel(Model):
     def step(self):
         if not self.event_queue:
             self.current_event = "FINISHED"
+            if not self.history or self.history[-1]["current_event"] != "FINISHED":
+                self.record_history_snapshot()
             return
 
         self.step_count += 1
@@ -179,6 +183,7 @@ class PollingStationModel(Model):
                 "voter_id": voter_id,
             }
         )
+        self.record_history_snapshot()
 
     def process_event(self, event_type, voter_id):
         if event_type == "POWER_OUTAGE":
@@ -490,6 +495,22 @@ class PollingStationModel(Model):
             for voter in self.voters
             if voter.participates and voter.state == "outside"
         )
+        waiting_times = [
+            voter.waiting_time
+            for voter in self.voters
+            if voter.arrival_time is not None and voter.state != "outside"
+        ]
+        average_waiting_time = (
+            float(np.mean(waiting_times)) if waiting_times else 0.0
+        )
+        p95_waiting_time = (
+            float(np.percentile(waiting_times, 95)) if waiting_times else 0.0
+        )
+        state_counts = Counter(voter.state for voter in self.voters)
+        arrived_voters = self.total_turnout - pending_arrivals
+        completed_processes = (
+            finished_voters + rejected_voters + self.abandonment_count
+        )
 
         return {
             "total_registered": self.n_voters,
@@ -501,12 +522,16 @@ class PollingStationModel(Model):
             "rejected_voters": int(rejected_voters),
             "active_voters": int(active_voters),
             "pending_arrivals": int(pending_arrivals),
+            "arrived_voters": int(arrived_voters),
+            "completed_processes": int(completed_processes),
             "queue_length": len(self.queue),
             "ready_to_vote_queue_length": sum(len(queue) for queue in self.ballot_box_queues),
             "ballot_box_queue_lengths": [
                 len(queue) for queue in self.ballot_box_queues
             ],
             "max_queue_length": int(self.max_queue_length),
+            "average_waiting_time": round(average_waiting_time, 2),
+            "p95_waiting_time": round(p95_waiting_time, 2),
             "abandonment_count": int(self.abandonment_count),
             "poll_workers": self.n_poll_workers,
             "ballot_boxes": self.n_ballot_boxes,
@@ -515,6 +540,65 @@ class PollingStationModel(Model):
             "main_events": ["ARRIVAL", "VALIDATION", "VOTING", "EXIT"],
             "external_event": "POWER_OUTAGE",
             "votes_by_party": dict(self.votes_by_party),
+            "state_counts": dict(state_counts),
+            "poll_worker_metrics": [
+                {
+                    "id": int(worker.unique_id),
+                    "processed": int(worker.processed_voters),
+                    "rejected": int(worker.rejected_voters),
+                    "state": worker.state,
+                }
+                for worker in self.poll_workers
+            ],
+            "ballot_box_metrics": [
+                {
+                    "id": int(ballot_box.unique_id),
+                    "processed": int(ballot_box.processed_voters),
+                    "queue_length": len(self.ballot_box_queues[index]),
+                    "state": ballot_box.state,
+                }
+                for index, ballot_box in enumerate(self.ballot_boxes)
+            ],
+        }
+
+    def record_history_snapshot(self):
+        """Store compact time-series data for the read-only dashboard."""
+        stats = self.get_stats()
+        self.history.append(
+            {
+                "step": int(self.step_count),
+                "simulation_clock": round(float(self.simulation_clock), 2),
+                "current_event": self.current_event or "INITIALIZED",
+                "queue_length": stats["queue_length"],
+                "lane_queue_lengths": stats["ballot_box_queue_lengths"],
+                "active_voters": stats["active_voters"],
+                "finished_voters": stats["finished_voters"],
+                "valid_votes": stats["valid_votes"],
+                "null_votes": stats["null_votes"],
+                "abandonment_count": stats["abandonment_count"],
+                "power_status": stats["power_status"],
+            }
+        )
+
+    def get_dashboard_data(self, max_history_points=600):
+        """Return current and historical data without advancing the model."""
+        history = self.history
+        if len(history) > max_history_points:
+            stride = int(np.ceil(len(history) / max_history_points))
+            history = history[::stride]
+            if history[-1] is not self.history[-1]:
+                history = history + [self.history[-1]]
+
+        stats = self.get_stats()
+        return {
+            "step": int(self.step_count),
+            "simulation_clock": round(float(self.simulation_clock), 2),
+            "current_event": self.current_event or "INITIALIZED",
+            "is_finished": self.current_event == "FINISHED",
+            "stats": stats,
+            "history": history,
+            "recent_events": self.event_log[-12:],
+            "recent_messages": self.communication_log[-8:],
         }
 
     def get_agent_payload(self):

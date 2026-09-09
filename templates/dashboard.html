@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Centro de resultados | Casilla electoral</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">CE</span>
+      <div>
+        <p class="eyebrow">Simulacion multiagente</p>
+        <h1>Centro de resultados</h1>
+      </div>
+    </div>
+    <div class="run-status">
+      <span id="connectionDot" class="status-dot"></span>
+      <div>
+        <strong id="runState">Conectando</strong>
+        <span id="lastUpdate">Esperando datos</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="control-strip" aria-label="Estado de la simulacion">
+      <div class="event-block">
+        <span>Evento actual</span>
+        <strong id="currentEvent">INITIALIZED</strong>
+      </div>
+      <div class="progress-block">
+        <div class="progress-copy">
+          <span id="progressLabel">0 de 0 participantes procesados</span>
+          <strong id="progressPercent">0%</strong>
+        </div>
+        <div class="progress-track"><span id="progressBar"></span></div>
+      </div>
+      <div class="clock-block">
+        <span>Reloj simulado</span>
+        <strong id="simulationClock">0.00</strong>
+      </div>
+      <div class="step-block">
+        <span>Paso</span>
+        <strong id="stepCount">0</strong>
+      </div>
+      <button id="resetButton" class="reset-button" type="button" title="Reiniciar simulacion">
+        Reiniciar
+      </button>
+    </section>
+
+    <section class="kpi-grid" aria-label="Indicadores principales">
+      <article class="kpi accent-blue"><span>Fila general</span><strong id="queueLength">0</strong><small id="queueMax">Maximo: 0</small></article>
+      <article class="kpi accent-violet"><span>En carriles</span><strong id="laneTotal">0</strong><small>Esperando urna</small></article>
+      <article class="kpi accent-green"><span>Finalizados</span><strong id="finishedVoters">0</strong><small id="activeVoters">0 activos</small></article>
+      <article class="kpi accent-gold"><span>Espera promedio</span><strong><span id="averageWait">0</span><em> min</em></strong><small id="p95Wait">P95: 0 min</small></article>
+      <article class="kpi accent-red"><span>Abandonos</span><strong id="abandonments">0</strong><small id="rejectedVoters">0 rechazados</small></article>
+    </section>
+
+    <section class="dashboard-grid">
+      <article class="panel span-2">
+        <div class="panel-heading">
+          <div><span class="section-index">01</span><h2>Flujo de la casilla</h2></div>
+          <div class="legend"><span class="blue">Fila</span><span class="violet">Carriles</span><span class="green">Finalizados</span></div>
+        </div>
+        <canvas id="flowChart" height="280" aria-label="Evolucion de filas y finalizados"></canvas>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading"><div><span class="section-index">02</span><h2>Votos por partido</h2></div></div>
+        <div class="party-chart-layout">
+          <div id="partyPie" class="party-pie" role="img" aria-label="Distribucion porcentual de votos por partido">
+            <div><strong id="partyVoteTotal">0</strong><span>votos validos</span></div>
+          </div>
+          <div id="partyLegend" class="party-legend"></div>
+        </div>
+        <div class="vote-summary"><span><b id="validVotes">0</b> validos</span><span><b id="nullVotes">0</b> nulos</span></div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading"><div><span class="section-index">03</span><h2>Carga por carril</h2></div><span id="laneCapacity" class="capacity-label">Capacidad 8</span></div>
+        <div id="laneChart" class="lane-chart"></div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading"><div><span class="section-index">04</span><h2>Mesas de validacion</h2></div></div>
+        <div id="workerTable" class="resource-list"></div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading"><div><span class="section-index">05</span><h2>Urnas procesadas</h2></div></div>
+        <div id="boxTable" class="resource-list"></div>
+      </article>
+
+      <article class="panel span-2">
+        <div class="panel-heading"><div><span class="section-index">06</span><h2>Participacion y estados</h2></div></div>
+        <div class="participation-layout">
+          <div id="turnoutDonut" class="donut"><div><strong id="turnoutPercent">0%</strong><span>participacion</span></div></div>
+          <div id="stateBreakdown" class="state-grid"></div>
+        </div>
+      </article>
+
+      <article class="panel span-2 event-panel">
+        <div class="panel-heading"><div><span class="section-index">07</span><h2>Actividad reciente</h2></div><span id="powerStatus" class="power-badge">Energia normal</span></div>
+        <div id="eventLog" class="event-log"></div>
+      </article>
+    </section>
+  </main>
+
+  <div id="finishedBanner" class="finished-banner" role="status">
+    <div><span>SIMULACION COMPLETA</span><strong>Los resultados finales estan listos.</strong></div>
+    <button id="dismissBanner" type="button" aria-label="Cerrar aviso">Cerrar</button>
+  </div>
+
+  <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+</html>

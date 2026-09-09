@@ -46,6 +46,16 @@ Luego abrir:
 http://127.0.0.1:5000/apidocs
 ```
 
+Dashboard de resultados en tiempo real:
+
+```text
+http://127.0.0.1:5000/dashboard
+```
+
+El dashboard consulta `GET /dashboard_data`, que es de solo lectura. Unity sigue
+usando `GET /get_agents` para avanzar la simulacion, por lo que abrir el dashboard
+no modifica la velocidad ni el orden de los eventos.
+
 Endpoint principal:
 
 ```text
