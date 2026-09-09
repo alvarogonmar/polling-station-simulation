@@ -122,13 +122,34 @@ class PollingStationModel(Model):
             self.schedule.add(voter)
         return voters
 
+    # --- issue-based affinity system (bloque activable/desactivable) ---
+    def get_issue_affinity_scores(self, voter):
+        if not config.ENABLE_ISSUE_AFFINITY or voter.issue_weights is None:
+            return np.zeros(len(self.parties), dtype=float)
+
+        voter_vector = np.array(voter.issue_weights, dtype=float)
+        affinities = []
+        for party in self.parties:
+            platform = np.array(config.PARTY_PLATFORMS[party], dtype=float)
+            l1_distance = np.abs(voter_vector - platform).sum()
+            affinities.append(1.0 - (l1_distance / 200.0))
+        return np.array(affinities, dtype=float)
+    # --------------------------------------------------------------------
+
     def get_party_probabilities(self, voter):
         age_base = np.array(config.AGE_GROUP_PROBABILITIES[voter.age_group], dtype=float)
         education_effect = np.array(config.EDUCATION_EFFECTS[voter.education], dtype=float)
         income_effect = np.array(config.INCOME_EFFECTS[voter.income], dtype=float)
         ideology_effect = np.array(config.IDEOLOGY_EFFECTS, dtype=float) * voter.ideology
 
-        utility_scores = age_base + education_effect + income_effect + ideology_effect
+        # --- issue-based affinity system (bloque activable/desactivable) ---
+        affinity_scores = self.get_issue_affinity_scores(voter)
+        affinity_effect = (affinity_scores - 0.5) * config.AFFINITY_WEIGHT if config.ENABLE_ISSUE_AFFINITY else affinity_scores
+        # --------------------------------------------------------------------
+
+        utility_scores = (
+            age_base + education_effect + income_effect + ideology_effect + affinity_effect
+        )
         exp_scores = np.exp(utility_scores - np.max(utility_scores))
         probabilities = exp_scores / exp_scores.sum()
         return probabilities
