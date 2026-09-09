@@ -60,6 +60,9 @@ class PollingStationModel(Model):
         self.event_queue = []
         self.event_log = []
         self.communication_log = []
+        self.power_outage_started_at = None
+        self.power_restored_at = None
+        self.power_outage_duration = None
 
         self.n_voters = config.N_VOTERS
         self.parties = config.PARTIES
@@ -191,33 +194,47 @@ class PollingStationModel(Model):
         self.step_count += 1
         event_time, event_type, voter_id = heapq.heappop(self.event_queue)
         self.simulation_clock = event_time
+        previous_event = self.current_event
         self.current_event = event_type
 
-        self.process_event(event_type, voter_id)
+        event_processed = self.process_event(event_type, voter_id)
+        if not event_processed:
+            self.current_event = (
+                "POWER_OUTAGE" if self.power_status == "outage" else previous_event
+            )
         self.supervisor.observe()
         self.update_queue_positions()
         self.max_queue_length = max(self.max_queue_length, len(self.queue))
-        self.event_log.append(
-            {
-                "time": round(float(event_time), 2),
-                "event": event_type,
-                "voter_id": voter_id,
-            }
-        )
+        if event_processed:
+            self.event_log.append(
+                {
+                    "time": round(float(event_time), 2),
+                    "event": event_type,
+                    "voter_id": voter_id,
+                }
+            )
         self.record_history_snapshot()
 
     def process_event(self, event_type, voter_id):
         if event_type == "POWER_OUTAGE":
             self.power_status = "outage"
+            self.power_outage_started_at = float(self.simulation_clock)
+            self.power_restored_at = None
+            self.power_outage_duration = None
             for poll_worker in self.poll_workers:
                 poll_worker.state = "paused"
             self.communication_log.append(
                 "SupervisorAgent -> PollWorkerAgents: pause service because of POWER_OUTAGE"
             )
-            return
+            return True
 
         if event_type == "POWER_RESTORED":
             self.power_status = "normal"
+            self.power_restored_at = float(self.simulation_clock)
+            if self.power_outage_started_at is not None:
+                self.power_outage_duration = (
+                    self.power_restored_at - self.power_outage_started_at
+                )
             for poll_worker in self.poll_workers:
                 if poll_worker.current_voter is None:
                     poll_worker.state = "available"
@@ -228,14 +245,14 @@ class PollingStationModel(Model):
             )
             self.try_start_next_validation()
             self.try_start_next_voting()
-            return
+            return True
 
         voter = self.get_voter_by_id(voter_id)
         if voter is None or voter.state in {"abandoned", "finished", "rejected"}:
-            return
+            return False
         if self.power_status == "outage":
             self.schedule_event(self.simulation_clock + 1.0, event_type, voter_id)
-            return
+            return False
 
         if event_type == "ARRIVAL":
             self.process_arrival(voter)
@@ -247,6 +264,9 @@ class PollingStationModel(Model):
             self.process_start_voting()
         elif event_type == "EXIT":
             self.process_exit(voter)
+        else:
+            return False
+        return True
 
     def process_arrival(self, voter):
         voter.state = "waiting"
@@ -532,6 +552,12 @@ class PollingStationModel(Model):
         completed_processes = (
             finished_voters + rejected_voters + self.abandonment_count
         )
+        power_outage_elapsed = None
+        if self.power_outage_started_at is not None:
+            outage_end = self.power_restored_at or self.simulation_clock
+            power_outage_elapsed = max(
+                0.0, float(outage_end) - self.power_outage_started_at
+            )
 
         return {
             "total_registered": self.n_voters,
@@ -557,6 +583,10 @@ class PollingStationModel(Model):
             "poll_workers": self.n_poll_workers,
             "ballot_boxes": self.n_ballot_boxes,
             "power_status": self.power_status,
+            "power_outage_started_at": self.power_outage_started_at,
+            "power_restored_at": self.power_restored_at,
+            "power_outage_duration": self.power_outage_duration,
+            "power_outage_elapsed": power_outage_elapsed,
             "event_queue_size": len(self.event_queue),
             "main_events": ["ARRIVAL", "VALIDATION", "VOTING", "EXIT"],
             "external_event": "POWER_OUTAGE",

@@ -123,6 +123,10 @@ canvas { display: block; width: 100%; height: 280px; }
 .state-item span { display: block; color: var(--muted); font-size: 10px; text-transform: capitalize; }.state-item strong { font-size: 19px; }
 
 .event-log { min-height: 204px; display: grid; align-content: start; }
+.power-details { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin: -6px 0 14px; background: var(--line); border: 1px solid var(--line); }
+.power-details div { min-width: 0; padding: 10px 12px; background: #f7f8f5; }
+.power-details span { display: block; color: var(--muted); font-size: 9px; font-weight: 750; text-transform: uppercase; }
+.power-details strong { display: block; margin-top: 4px; font: 12px ui-monospace, monospace; }
 .event-row { display: grid; grid-template-columns: 82px 110px 1fr; gap: 14px; padding: 9px 0; border-bottom: 1px solid #e8ebe8; font: 11px ui-monospace, monospace; }
 .event-row:last-child { border-bottom: 0; }.event-time { color: var(--muted); }.event-type { color: var(--green); font-weight: 800; }
 .power-badge.outage { background: #f7dedb; color: var(--red); }
@@ -145,4 +149,5 @@ canvas { display: block; width: 100%; height: 280px; }
   .legend { display: none; }.participation-layout { grid-template-columns: 1fr; justify-items: center; }.state-grid { width: 100%; }
   .party-chart-layout { grid-template-columns: 130px 1fr; gap: 16px; }.party-pie { width: 130px; height: 130px; }.party-pie::before { width: 78px; height: 78px; }
   .event-row { grid-template-columns: 68px 90px 1fr; gap: 8px; font-size: 9px; }
+  .power-details { grid-template-columns: 1fr; }
 }

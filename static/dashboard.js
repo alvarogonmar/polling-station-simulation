@@ -147,6 +147,13 @@ function renderDashboard(data) {
   const powerOut = s.power_status === "outage";
   setText("powerStatus", powerOut ? "Corte de energia" : "Energia normal");
   $("powerStatus").classList.toggle("outage", powerOut);
+  setText("powerOutageStart", s.power_outage_started_at == null ? "--" : `t=${Number(s.power_outage_started_at).toFixed(2)}`);
+  setText("powerRestoredAt", s.power_restored_at == null ? "--" : `t=${Number(s.power_restored_at).toFixed(2)}`);
+  const outageTime = s.power_outage_duration ?? s.power_outage_elapsed;
+  setText(
+    "powerOutageDuration",
+    outageTime == null ? "--" : `${Number(outageTime).toFixed(2)} min${powerOut ? " (en curso)" : ""}`
+  );
   $("eventLog").innerHTML = data.recent_events.slice().reverse().map(event => `
     <div class="event-row"><span class="event-time">t=${Number(event.time).toFixed(2)}</span><span class="event-type">${event.event}</span><span>Agente ${event.voter_id ?? "sistema"}</span></div>`).join("") || '<div class="event-row"><span>Sin eventos</span></div>';
 

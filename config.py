@@ -54,7 +54,7 @@ IDEOLOGY_EFFECTS = [-0.20, -0.10, 0.00, 0.10, 0.20]
 # Para desactivar por completo esta función y volver al comportamiento
 # original (byte por byte), poner ENABLE_ISSUE_AFFINITY = False.
 # =====================================================================
-ENABLE_ISSUE_AFFINITY = True
+ENABLE_ISSUE_AFFINITY = False  # True para activar, False para desactivar
 
 ISSUES = [
     "health", "economic_support", "family_support",
