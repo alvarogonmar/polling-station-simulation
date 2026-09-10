@@ -4,7 +4,7 @@ Simulacion multiagente de una casilla electoral usando Mesa como motor, Flask co
 
 ## Setup
 
-Crear y activar entorno virtual:
+Crear y activar entorno virtual :
 
 ```bash
 python3 -m venv .venv
